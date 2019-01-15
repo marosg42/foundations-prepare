@@ -231,7 +231,7 @@ virt-install --noautoconsole --print-xml --boot network,hd,menu=on \
 virsh define \${1}\${2}.xml
 }
 
-for i in \$(seq 1 4); do
+for i in \$(seq 1 9); do
   define fe \${i} 4096 \$(date +"%y %m %H %M %S")
 done
 EOF

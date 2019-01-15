@@ -221,11 +221,11 @@ virt-install --noautoconsole --print-xml --boot network,hd,menu=on \
 --disk path=${VMs}/\${1}\${2}d1.qcow2,size=60,\$DISKOPTS \
 --disk path=${VMs}/\${1}\${2}d2.qcow2,size=20,\$DISKOPTS \
 --disk path=${VMs}/\${1}\${2}d3.qcow2,size=20,\$DISKOPTS \
---network=bridge=maasbr0,mac=\${4}:\${5}:\${6}:\${7}:\${8}:1\${2},model=virtio \
---network=bridge=maasbr0,mac=\${4}:\${5}:\${6}:\${7}:\${8}:2\${2},model=virtio \
---network=bridge=maasbr0,mac=\${4}:\${5}:\${6}:\${7}:\${8}:3\${2},model=virtio \
---network=bridge=maasbr0,mac=\${4}:\${5}:\${6}:\${7}:\${8}:4\${2},model=virtio \
---network=bridge=maasbr0,mac=\${4}:\${5}:\${6}:\${7}:\${8}:5\${2},model=virtio \
+--network=bridge=maasbr0,mac=18:\${5}:\${6}:\${7}:\${8}:1\${2},model=virtio \
+--network=bridge=maasbr0,mac=18:\${5}:\${6}:\${7}:\${8}:2\${2},model=virtio \
+--network=bridge=maasbr0,mac=18:\${5}:\${6}:\${7}:\${8}:3\${2},model=virtio \
+--network=bridge=maasbr0,mac=18:\${5}:\${6}:\${7}:\${8}:4\${2},model=virtio \
+--network=bridge=maasbr0,mac=18:\${5}:\${6}:\${7}:\${8}:5\${2},model=virtio \
 > \${1}\${2}.xml
 
 virsh define \${1}\${2}.xml

@@ -173,6 +173,9 @@ wait_for_load 4
 
 logit "multipass list"
 
+ssh-keygen -f "/home/ubuntu/.ssh/known_hosts" -R "192.168.210.4"
+ssh-keygen -f "/home/ubuntu/.ssh/known_hosts" -R "192.168.210.5"
+ssh-keygen -f "/home/ubuntu/.ssh/known_hosts" -R "192.168.210.6"
 # setup ssh keys as needed
 PUBKEY=$(cat .ssh/id_rsa.pub)
 
@@ -242,92 +245,8 @@ sleep 30
 
 logit "ls -l"
 
-# install FCE
-logit "echo \"installing cpe-foundation\""
-cd cpe-foundation; sudo ./install
-logit "echo return code $?"
-logit "snap list"
-cd ../cpe-deployments
-git checkout qa/marosg/ha_test
-
 printf 'y\n'|ssh-keygen -t rsa -f id_rsa_persistent -t rsa -N ''
 cat id_rsa_persistent.pub >> ~/.ssh/authorized_keys
 echo "IdentityFile ~/.ssh/id_rsa" > sshconfig; echo "IdentityFile ~/.ssh/id_rsa_persistent" >> sshconfig
 
-git config user.name "Marian Gasparovic"; git config user.email marian.gasparovic@canonical.com
 ssh-keyscan -H 192.168.210.4 >> ~/.ssh/known_hosts;ssh-keyscan -H 192.168.210.5 >> ~/.ssh/known_hosts;ssh-keyscan -H 192.168.210.6 >> ~/.ssh/known_hosts
-
-logit "echo \"building HA maas\""
-fce --debug build --layer maas
-rc=$?;logit "echo return code $rc"
-if [ "$rc" -ne "0" ]; then
-  echo "Try again"
-  logit "echo \"building HA maas\""
-  fce --debug build --layer maas
-  rc=$?;logit "echo return code $rc"
-fi
-wait_for_load 5
-logit "ping -c 1 192.168.210.4"
-logit "ping -c 1 192.168.210.5"
-logit "ping -c 1 192.168.210.6"
-logit "ping -c 1 192.168.210.7"
-logit "ping -c 1 192.168.210.8"
-logit "echo \"building HA juju_maas_controller\""
-fce --debug build --layer juju_maas_controller
-if [ "$rc" -ne "0" ]; then
-  echo "Try again"
-  logit "echo \"building HA juju_maas_controller\""
-  fce --debug build --layer juju_maas_controller
-  rc=$?;logit "echo return code $rc"
-fi
-wait_for_load 5
-logit "echo \"deploy\""
-juju deploy ubuntu
-juju deploy ntp
-juju relate ntp ubuntu
-logit "juju controllers --refresh"
-logit "juju status"
-logit "ls -l"
-logit "echo juju wait"
-juju wait --workload --max_wait 1800
-logit "echo return code $?"
-logit "juju status"
-# RC 44 if timeout
-# RC 0 is ok
-logit "echo \"clean juju controller\""
-fce clean --layer juju_maas_controller
-logit "echo return code $?"
-logit "echo \"clean\""
-fce clean
-logit "echo return code $?"
-logit "echo \"remove infra nodes\""
-
-multipass stop infra1
-multipass stop infra2
-multipass stop infra3
-multipass delete infra1
-multipass delete infra2
-multipass delete infra3
-multipass purge
-logit "multipass list"
-wait_for_load 2
-rm sshconfig
-
-logit "echo \"*** define infra ***\""
-cd ..
-./define_infra.sh infra1 192.168.210.4
-logit "echo return code $?"
-cd cpe-deployments
-ssh-keygen -f "/home/ubuntu/.ssh/known_hosts" -R "192.168.210.4" 2>/dev/null
-# allow connection from host to ubuntu on infras
-for i in 4 ; do echo "${PUBKEY}" |ssh -o StrictHostKeyChecking=no 192.168.210.${i} "cat - >> /home/ubuntu/.ssh/authorized_keys"; done
-# allow connection from host to root on infras (TODO - needed?)
-for i in 4 ; do echo "${PUBKEY}" |ssh -o StrictHostKeyChecking=no 192.168.210.${i} "cat - |sudo tee -a /root/.ssh/authorized_keys"; done
-# get ubuntu public key from infras
-for i in 4 ; do ssh -o StrictHostKeyChecking=no 192.168.210.${i} "printf 'y\n'|ssh-keygen -t rsa -f /home/ubuntu/.ssh/id_rsa -t rsa -N '' >>/dev/null 2>&1  ; cat /home/ubuntu/.ssh/id_rsa.pub"; done > ubuntukeyinfra
-# allow ubuntu from infras to logon to host
-cat ubuntukeyinfra >> ~/.ssh/authorized_keys
-# establish first conection from infras to host so that it does not ask next time
-for i in 4 ; do ssh 192.168.210.${i} "printf 'yes\n'|ssh -o StrictHostKeyChecking=no ubuntu@192.168.210.1 hostname"; done
-
-set +e

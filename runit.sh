@@ -82,6 +82,7 @@ printf 'y\n'|ssh-keygen -t rsa -f ~/.ssh/id_rsa -t rsa -N ''
 # install multipass, prepare script for creating infra nodes in multipass
 logit "echo \"*** multipass ***\""
 sudo snap install multipass --classic --beta
+sleep 30
 sudo snap set multipass driver=LIBVIRT
 
 # multipass cloudinit

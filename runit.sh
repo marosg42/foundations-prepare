@@ -1,5 +1,14 @@
+#!/bin/bash
+
+# directories are not created ot checked for existence
+
+# location of log file
 LOG=./output.txt
+# directory where qcows2 files for VMs will be located
 VMs=~/VMs
+# whether do deploy single node or three node high avaialability MaaS. 
+# HA="1" means 3 infra nodes
+HA="0"  # single infra node
 
 # wait till avgload goes under $1
 # if $1 is not provided, 5 is default
@@ -163,33 +172,43 @@ logit "echo \"*** define infra1 ***\""
 ./define_infra.sh infra1 192.168.210.4
 logit "echo return code $?"
 wait_for_load 4
-logit "echo \"*** define infra2 ***\""
-./define_infra.sh infra2 192.168.210.5
-logit "echo return code $?"
-wait_for_load 4
-logit "echo \"*** define infra3 ***\""
-./define_infra.sh infra3 192.168.210.6
-logit "echo return code $?"
-wait_for_load 4
+if [ ${HA} -eq "1" ]; then
+  logit "echo \"*** define infra2 ***\""
+  ./define_infra.sh infra2 192.168.210.5
+  logit "echo return code $?"
+  wait_for_load 4
+  logit "echo \"*** define infra3 ***\""
+  ./define_infra.sh infra3 192.168.210.6
+  logit "echo return code $?"
+  wait_for_load 4
+fi
 
 logit "multipass list"
 
 ssh-keygen -f "/home/ubuntu/.ssh/known_hosts" -R "192.168.210.4"
-ssh-keygen -f "/home/ubuntu/.ssh/known_hosts" -R "192.168.210.5"
-ssh-keygen -f "/home/ubuntu/.ssh/known_hosts" -R "192.168.210.6"
+if [ ${HA} -eq "1" ]; then
+  ssh-keygen -f "/home/ubuntu/.ssh/known_hosts" -R "192.168.210.5"
+  ssh-keygen -f "/home/ubuntu/.ssh/known_hosts" -R "192.168.210.6"
+fi
 # setup ssh keys as needed
 PUBKEY=$(cat .ssh/id_rsa.pub)
 
+if [ ${HA} -eq "1" ]; then
+  INFRAS="4 5 6"
+else
+  INFRAS="4"
+fi
+
 # allow connection from host to ubuntu on infras
-for i in 4 5 6  ; do echo "${PUBKEY}" |ssh -o StrictHostKeyChecking=no 192.168.210.${i} "cat - >> /home/ubuntu/.ssh/authorized_keys"; done
+for i in ${INFRAS}  ; do echo "${PUBKEY}" |ssh -o StrictHostKeyChecking=no 192.168.210.${i} "cat - >> /home/ubuntu/.ssh/authorized_keys"; done
 # allow connection from host to root on infras (TODO - needed?)
-for i in 4 5 6  ; do echo "${PUBKEY}" |ssh -o StrictHostKeyChecking=no 192.168.210.${i} "cat - |sudo tee -a /root/.ssh/authorized_keys"; done
+for i in ${INFRAS} ; do echo "${PUBKEY}" |ssh -o StrictHostKeyChecking=no 192.168.210.${i} "cat - |sudo tee -a /root/.ssh/authorized_keys"; done
 # get ubuntu public key from infras
-for i in 4 5 6 ; do ssh -o StrictHostKeyChecking=no 192.168.210.${i} "printf 'y\n'|ssh-keygen -t rsa -f /home/ubuntu/.ssh/id_rsa -t rsa -N '' >>/dev/null 2>&1  ; cat /home/ubuntu/.ssh/id_rsa.pub"; done > ubuntukeyinfra
+for i in ${INFRAS} ; do ssh -o StrictHostKeyChecking=no 192.168.210.${i} "printf 'y\n'|ssh-keygen -t rsa -f /home/ubuntu/.ssh/id_rsa -t rsa -N '' >>/dev/null 2>&1  ; cat /home/ubuntu/.ssh/id_rsa.pub"; done > ubuntukeyinfra
 # allow ubuntu from infras to logon to host
 cat ubuntukeyinfra >> ~/.ssh/authorized_keys
 # establish first conection from infras to host so that it does not ask next time
-for i in 4 5 6 ; do ssh 192.168.210.${i} "printf 'yes\n'|ssh -o StrictHostKeyChecking=no ubuntu@192.168.210.1 hostname"; done
+for i in ${INFRAS} ; do ssh 192.168.210.${i} "printf 'yes\n'|ssh -o StrictHostKeyChecking=no ubuntu@192.168.210.1 hostname"; done
 
 # define four VMs for FCE
 logit "echo \"*** define VMs ***\""
@@ -250,10 +269,13 @@ printf 'y\n'|ssh-keygen -t rsa -f id_rsa_persistent -t rsa -N ''
 cat id_rsa_persistent.pub >> ~/.ssh/authorized_keys
 echo "IdentityFile ~/.ssh/id_rsa" > sshconfig; echo "IdentityFile ~/.ssh/id_rsa_persistent" >> sshconfig
 
-ssh-keyscan -H 192.168.210.4 >> ~/.ssh/known_hosts;ssh-keyscan -H 192.168.210.5 >> ~/.ssh/known_hosts;ssh-keyscan -H 192.168.210.6 >> ~/.ssh/known_hosts
+ssh-keyscan -H 192.168.210.4 >> ~/.ssh/known_hosts
+if [ ${HA} -eq "1" ]; then
+  ssh-keyscan -H 192.168.210.5 >> ~/.ssh/known_hosts
+  ssh-keyscan -H 192.168.210.6 >> ~/.ssh/known_hosts
+fi
 
-git config user.name "Chuck Norris"; git config user.email chuck.norris@norris.chuck
-
-echo "********************************************************************************************"
-echo "* When you clone cpe-deployments, copy ssh config and id_rsa_persistent* to that directory *"
-echo "********************************************************************************************"
+echo "*******************************************************************************************************"
+echo "* When you clone cpe-deployments, copy ssh config and id_rsa_persistent* to that directory            *"
+echo "* Also run git config user.name \"Chuck Norris\"; git config user.email chuck.norris@norris.chuck there *"
+echo "*******************************************************************************************************"

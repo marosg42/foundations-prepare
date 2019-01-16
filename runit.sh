@@ -253,3 +253,7 @@ echo "IdentityFile ~/.ssh/id_rsa" > sshconfig; echo "IdentityFile ~/.ssh/id_rsa_
 ssh-keyscan -H 192.168.210.4 >> ~/.ssh/known_hosts;ssh-keyscan -H 192.168.210.5 >> ~/.ssh/known_hosts;ssh-keyscan -H 192.168.210.6 >> ~/.ssh/known_hosts
 
 git config user.name "Chuck Norris"; git config user.email chuck.norris@norris.chuck
+
+echo "********************************************************************************************"
+echo "* When you clone cpe-deployments, copy ssh config and id_rsa_persistent* to that directory *"
+echo "********************************************************************************************"

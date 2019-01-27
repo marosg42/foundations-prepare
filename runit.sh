@@ -6,7 +6,7 @@
 LOG=./output.txt
 # directory where qcows2 files for VMs will be located
 VMs=~/VMs
-# whether do deploy single node or three node high avaialability MaaS. 
+# whether do deploy single node or three node high availability MaaS. 
 # HA="1" means 3 infra nodes
 HA="0"  # single infra node
 
@@ -127,7 +127,9 @@ cat <<EOF | tee define_infra.sh
 # \$1 name
 # \$2 IP
 
+# trick to avoid multipass asking interactive question about statistics at random times
 exec 0<&-
+
 HOST=\$1
 multipass launch 18.04 -c 4 -d 50G -m 8G --cloud-init cloudinit.yaml -n \${HOST}
 sleep 5

@@ -187,6 +187,7 @@ fi
 
 logit "multipass list"
 
+logit "echo running ssh-keygen"
 ssh-keygen -f "/home/ubuntu/.ssh/known_hosts" -R "192.168.210.4"
 if [ ${HA} -eq "1" ]; then
   ssh-keygen -f "/home/ubuntu/.ssh/known_hosts" -R "192.168.210.5"
@@ -201,14 +202,19 @@ else
   INFRAS="4"
 fi
 
+logit "echo allow connection from host to ubuntu on infras"
 # allow connection from host to ubuntu on infras
 for i in ${INFRAS}  ; do echo "${PUBKEY}" |ssh -o StrictHostKeyChecking=no 192.168.210.${i} "cat - >> /home/ubuntu/.ssh/authorized_keys"; done
+logit "echo allow connection from host to root on infras"
 # allow connection from host to root on infras (TODO - needed?)
 for i in ${INFRAS} ; do echo "${PUBKEY}" |ssh -o StrictHostKeyChecking=no 192.168.210.${i} "cat - |sudo tee -a /root/.ssh/authorized_keys"; done
+logit "echo get ubuntu public key from infras"
 # get ubuntu public key from infras
 for i in ${INFRAS} ; do ssh -o StrictHostKeyChecking=no 192.168.210.${i} "printf 'y\n'|ssh-keygen -t rsa -f /home/ubuntu/.ssh/id_rsa -t rsa -N '' >>/dev/null 2>&1  ; cat /home/ubuntu/.ssh/id_rsa.pub"; done > ubuntukeyinfra
+logit "echo allow ubuntu from infras to logon to host"
 # allow ubuntu from infras to logon to host
 cat ubuntukeyinfra >> ~/.ssh/authorized_keys
+logit "echo establish first conection from infras to host so that it does not ask next time"
 # establish first conection from infras to host so that it does not ask next time
 for i in ${INFRAS} ; do ssh 192.168.210.${i} "printf 'yes\n'|ssh -o StrictHostKeyChecking=no ubuntu@192.168.210.1 hostname"; done
 

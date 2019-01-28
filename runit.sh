@@ -188,11 +188,13 @@ fi
 logit "multipass list"
 
 logit "echo running ssh-keygen"
+set +e
 ssh-keygen -f "/home/ubuntu/.ssh/known_hosts" -R "192.168.210.4"
 if [ ${HA} -eq "1" ]; then
   ssh-keygen -f "/home/ubuntu/.ssh/known_hosts" -R "192.168.210.5"
   ssh-keygen -f "/home/ubuntu/.ssh/known_hosts" -R "192.168.210.6"
 fi
+set -e
 # setup ssh keys as needed
 PUBKEY=$(cat .ssh/id_rsa.pub)
 

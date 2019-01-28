@@ -45,6 +45,13 @@ logit() {
 
 logit "echo \"*** Start ***\"" 
 set -e
+if [ ${USER} != 'ubuntu' ]; then
+  logit "echo This is just a dumb script which assumes it runs under user ubuntu"
+  return 1
+fi
+
+mkdir -p ${VMs}
+
 logit "echo \"*** Bind ***\""
 # DNS server (just a forwarder, should be replaced by dnsmasq) to listen on 192.168.210.1
 sudo apt install bind9 bind9utils -y
@@ -289,3 +296,4 @@ echo "**************************************************************************
 echo "* When you clone cpe-deployments, copy ssh config and id_rsa_persistent* to that directory            *"
 echo "* Also run git config user.name \"Chuck Norris\"; git config user.email chuck.norris@norris.chuck there *"
 echo "*******************************************************************************************************"
+echo

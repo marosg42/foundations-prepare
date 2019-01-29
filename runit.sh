@@ -42,7 +42,7 @@ logit() {
 }
 
 
-
+cd
 logit "echo \"*** Start ***\"" 
 set -e
 if [ ${USER} != 'ubuntu' ]; then

@@ -107,9 +107,13 @@ logit "echo \"*** multipass ***\""
 sudo snap install multipass --classic --beta
 sleep 30
 sudo snap set multipass driver=LIBVIRT
+sleep 10
 sudo snap set multipass proxy.http=http://100.107.0.4:1080
 sudo snap set multipass proxy.https=http://100.107.0.4:1080
+sleep 15
 sudo snap restart multipass
+
+logit "brctl show"
 
 
 # multipass cloudinit

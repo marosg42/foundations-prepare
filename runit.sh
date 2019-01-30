@@ -52,6 +52,13 @@ fi
 
 mkdir -p ${VMs}
 
+cat <<EOF | sudo tee -a /etc/environment
+http_proxy="http://100.107.0.4:1080"
+https_proxy="http://100.107.0.4:1080"
+EOF
+sudo systemctl restart snapd
+
+
 logit "echo \"*** Bind ***\""
 # DNS server (just a forwarder, should be replaced by dnsmasq) to listen on 192.168.210.1
 sudo apt install bind9 bind9utils -y
@@ -100,6 +107,10 @@ logit "echo \"*** multipass ***\""
 sudo snap install multipass --classic --beta
 sleep 30
 sudo snap set multipass driver=LIBVIRT
+sudo snap set multipass proxy.http=http://100.107.0.4:1080
+sudo snap set multipass proxy.https=http://100.107.0.4:1080
+sudo snap restart multipass
+
 
 # multipass cloudinit
 logit "echo \"*** create cloudinit ***\""
@@ -210,6 +221,8 @@ if [ ${HA} -eq "1" ]; then
 else
   INFRAS="4"
 fi
+
+for i in ${INFRAS} ; do echo \"http_proxy=http://100.107.0.4:1080\nhttps_proxy=http://100.107.0.4:1080\"|ssh -o StrictHostKeyChecking=no 192.168.210.${i} "cat - |sudo tee -a /etc/environment"; done
 
 logit "echo allow connection from host to ubuntu on infras"
 # allow connection from host to ubuntu on infras

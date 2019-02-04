@@ -7,8 +7,7 @@ LOG=./output.txt
 # directory where qcows2 files for VMs will be located
 VMs=~/VMs
 # whether do deploy single node or three node high availability MaaS. 
-# HA="1" means 3 infra nodes
-HA="0"  # single infra node
+HA=false  # single infra node
 
 # wait till avgload goes under $1
 # if $1 is not provided, 5 is default
@@ -196,7 +195,7 @@ logit "echo \"*** define infra1 ***\""
 ./define_infra.sh infra1 192.168.210.4
 logit "echo return code $?"
 wait_for_load 4
-if [ ${HA} -eq "1" ]; then
+if [ "$HA" = true ] ; then
   logit "echo \"*** define infra2 ***\""
   ./define_infra.sh infra2 192.168.210.5
   logit "echo return code $?"
@@ -212,7 +211,7 @@ logit "multipass list"
 logit "echo running ssh-keygen"
 set +e
 ssh-keygen -f "/home/ubuntu/.ssh/known_hosts" -R "192.168.210.4"
-if [ ${HA} -eq "1" ]; then
+if [ "$HA" = true ] ; then
   ssh-keygen -f "/home/ubuntu/.ssh/known_hosts" -R "192.168.210.5"
   ssh-keygen -f "/home/ubuntu/.ssh/known_hosts" -R "192.168.210.6"
 fi
@@ -220,7 +219,7 @@ set -e
 # setup ssh keys as needed
 PUBKEY=$(cat .ssh/id_rsa.pub)
 
-if [ ${HA} -eq "1" ]; then
+if [ "$HA" = true ] ; then
   INFRAS="4 5 6"
 else
   INFRAS="4"
@@ -304,7 +303,7 @@ cat id_rsa_persistent.pub >> ~/.ssh/authorized_keys
 echo "IdentityFile ~/.ssh/id_rsa" > sshconfig; echo "IdentityFile ~/.ssh/id_rsa_persistent" >> sshconfig
 
 ssh-keyscan -H 192.168.210.4 >> ~/.ssh/known_hosts
-if [ ${HA} -eq "1" ]; then
+if [ "$HA" = true ] ; then
   ssh-keyscan -H 192.168.210.5 >> ~/.ssh/known_hosts
   ssh-keyscan -H 192.168.210.6 >> ~/.ssh/known_hosts
 fi

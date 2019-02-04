@@ -57,9 +57,9 @@ mkdir -p ${VMs}
 
 if [ "$PROXY" = true ] ; then
   cat <<EOF | sudo tee -a /etc/environment
-  http_proxy="${PROXY_HTTP}"
-  https_proxy="${PROXY_HTTPS}"
-  EOF
+http_proxy="${PROXY_HTTP}"
+https_proxy="${PROXY_HTTPS}"
+EOF
 fi
 
 sudo systemctl restart snapd

@@ -1,13 +1,17 @@
 #!/bin/bash
 
-# directories are not created ot checked for existence
+# whether do deploy single node or three node high availability MaaS. 
+HA=false  # single infra node
+
+# whether to use proxy
+PROXY=false
+PROXY_HTTP="http://100.107.0.4:1080"
+PROXY_HTTPS="http://100.107.0.4:1080"
 
 # location of log file
 LOG=./output.txt
 # directory where qcows2 files for VMs will be located
 VMs=~/VMs
-# whether do deploy single node or three node high availability MaaS. 
-HA=false  # single infra node
 
 # wait till avgload goes under $1
 # if $1 is not provided, 5 is default
@@ -51,10 +55,13 @@ fi
 
 mkdir -p ${VMs}
 
-cat <<EOF | sudo tee -a /etc/environment
-http_proxy="http://100.107.0.4:1080"
-https_proxy="http://100.107.0.4:1080"
-EOF
+if [ "$PROXY" = true ] ; then
+  cat <<EOF | sudo tee -a /etc/environment
+  http_proxy="${PROXY_HTTP}"
+  https_proxy="${PROXY_HTTPS}"
+  EOF
+fi
+
 sudo systemctl restart snapd
 
 
@@ -107,9 +114,11 @@ sudo snap install multipass --classic --beta
 sleep 30
 sudo snap set multipass driver=LIBVIRT
 sleep 10
-sudo snap set multipass proxy.http=http://100.107.0.4:1080
-sudo snap set multipass proxy.https=http://100.107.0.4:1080
-sleep 15
+if [ "$PROXY" = true ] ; then
+  sudo snap set multipass proxy.http=${PROXY_HTTP}
+  sudo snap set multipass proxy.https=${PROXY_HTTPS}
+  sleep 15
+fi
 sudo snap restart multipass
 
 logit "brctl show"
@@ -225,7 +234,9 @@ else
   INFRAS="4"
 fi
 
-for i in ${INFRAS} ; do echo \"http_proxy=http://100.107.0.4:1080\nhttps_proxy=http://100.107.0.4:1080\"|ssh -o StrictHostKeyChecking=no 192.168.210.${i} "cat - |sudo tee -a /etc/environment"; done
+if [ "$PROXY" = true ] ; then
+  for i in ${INFRAS} ; do echo \"http_proxy=${PROXY_HTTP}\nhttps_proxy=${PROXY_HTTPS}\"|ssh -o StrictHostKeyChecking=no 192.168.210.${i} "cat - |sudo tee -a /etc/environment"; done
+fi
 
 logit "echo allow connection from host to ubuntu on infras"
 # allow connection from host to ubuntu on infras

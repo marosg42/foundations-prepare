@@ -126,7 +126,7 @@ logit "brctl show"
 
 brctl show|grep mpvirtbr0
 
-if [ {$?} != 0 ] ; then
+if [ $? != 0 ] ; then
   logit "echo It sucks"
     return 1
 fi

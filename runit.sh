@@ -114,15 +114,32 @@ sudo snap install multipass --classic --beta
 sleep 30
 sudo snap set multipass driver=LIBVIRT
 sleep 10
-if [ "$PROXY" = true ] ; then
-  sudo snap set multipass proxy.http=${PROXY_HTTP}
-  sudo snap set multipass proxy.https=${PROXY_HTTPS}
-  sleep 15
-fi
-sudo snap restart multipass
 
 logit "brctl show"
 
+brctl show|grep mpvirtbr0
+
+if [ {$?} != 0 ] ; then
+  logit "echo Let\'s try again"
+  sudo snap set multipass driver=QEMU
+  sleep 15
+  sudo snap set multipass driver=LIBVIRT
+  logit "brctl show"
+
+  brctl show|grep mpvirtbr0
+  if [ {$?} != 0 ] ; then
+    logit "echo Meh, not working"
+    return 1
+  fi
+fi
+
+sleep 10
+if [ "$PROXY" = true ] ; then
+  sudo snap set multipass proxy.http=${PROXY_HTTP}
+  sudo snap set multipass proxy.https=${PROXY_HTTPS}
+  sudo snap restart multipass
+  sleep 15
+fi
 
 # multipass cloudinit
 logit "echo \"*** create cloudinit ***\""
@@ -217,14 +234,6 @@ fi
 
 logit "multipass list"
 
-logit "echo running ssh-keygen"
-set +e
-ssh-keygen -f "/home/ubuntu/.ssh/known_hosts" -R "192.168.210.4"
-if [ "$HA" = true ] ; then
-  ssh-keygen -f "/home/ubuntu/.ssh/known_hosts" -R "192.168.210.5"
-  ssh-keygen -f "/home/ubuntu/.ssh/known_hosts" -R "192.168.210.6"
-fi
-set -e
 # setup ssh keys as needed
 PUBKEY=$(cat .ssh/id_rsa.pub)
 
@@ -235,7 +244,9 @@ else
 fi
 
 if [ "$PROXY" = true ] ; then
-  for i in ${INFRAS} ; do echo \"http_proxy=${PROXY_HTTP}\nhttps_proxy=${PROXY_HTTPS}\"|ssh -o StrictHostKeyChecking=no 192.168.210.${i} "cat - |sudo tee -a /etc/environment"; done
+  logit "echo Adding proxy to infras"
+  for i in ${INFRAS} ; do echo \"http_proxy=${PROXY_HTTP}\"|ssh -o StrictHostKeyChecking=no 192.168.210.${i} "cat - |sudo tee -a /etc/environment"; done
+  for i in ${INFRAS} ; do echo \"https_proxy=${PROXY_HTTPS}\"|ssh -o StrictHostKeyChecking=no 192.168.210.${i} "cat - |sudo tee -a /etc/environment"; done
 fi
 
 logit "echo allow connection from host to ubuntu on infras"
@@ -254,7 +265,7 @@ logit "echo establish first conection from infras to host so that it does not as
 # establish first conection from infras to host so that it does not ask next time
 for i in ${INFRAS} ; do ssh 192.168.210.${i} "printf 'yes\n'|ssh -o StrictHostKeyChecking=no ubuntu@192.168.210.1 hostname"; done
 
-# define four VMs for FCE
+# define VMs for FCE
 logit "echo \"*** define VMs ***\""
 
 cat <<EOF |tee define_VMs.sh
@@ -264,10 +275,6 @@ define() {
 # \$2 id
 # \$3 memory
 # \$4 - \$8 unique MAC
-
-virsh undefine \${1}\${2}
-
-sleep 3
 
 CPUOPTS="--cpu host"
 GRAPHICS="--graphics vnc --video=cirrus"

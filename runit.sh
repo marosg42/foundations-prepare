@@ -59,6 +59,7 @@ if [ "$PROXY" = true ] ; then
   cat <<EOF | sudo tee -a /etc/environment
 http_proxy="${PROXY_HTTP}"
 https_proxy="${PROXY_HTTPS}"
+no_proxy=127.0.0.1
 EOF
 fi
 
@@ -112,6 +113,12 @@ printf 'y\n'|ssh-keygen -t rsa -f ~/.ssh/id_rsa -t rsa -N ''
 logit "echo \"*** multipass ***\""
 sudo snap install multipass --classic --beta
 sleep 30
+if [ "$PROXY" = true ] ; then
+  sudo snap set multipass proxy.http=${PROXY_HTTP}
+  sudo snap set multipass proxy.https=${PROXY_HTTPS}
+  sudo snap restart multipass
+  sleep 15
+fi
 sudo snap set multipass driver=LIBVIRT
 sleep 10
 
@@ -120,25 +127,8 @@ logit "brctl show"
 brctl show|grep mpvirtbr0
 
 if [ {$?} != 0 ] ; then
-  logit "echo Let\'s try again"
-  sudo snap set multipass driver=QEMU
-  sleep 15
-  sudo snap set multipass driver=LIBVIRT
-  logit "brctl show"
-
-  brctl show|grep mpvirtbr0
-  if [ {$?} != 0 ] ; then
-    logit "echo Meh, not working"
+  logit "echo It sucks"
     return 1
-  fi
-fi
-
-sleep 10
-if [ "$PROXY" = true ] ; then
-  sudo snap set multipass proxy.http=${PROXY_HTTP}
-  sudo snap set multipass proxy.https=${PROXY_HTTPS}
-  sudo snap restart multipass
-  sleep 15
 fi
 
 # multipass cloudinit
@@ -216,7 +206,6 @@ chmod +x define_infra.sh
 
 # call the script to create three infra nodes
 logit "echo \"*** define infras ***\""
-sleep 30
 logit "echo \"*** define infra1 ***\""
 ./define_infra.sh infra1 192.168.210.4
 logit "echo return code $?"

@@ -234,8 +234,8 @@ fi
 
 if [ "$PROXY" = true ] ; then
   logit "echo Adding proxy to infras"
-  for i in ${INFRAS} ; do echo \"http_proxy=${PROXY_HTTP}\"|ssh -o StrictHostKeyChecking=no 192.168.210.${i} "cat - |sudo tee -a /etc/environment"; done
-  for i in ${INFRAS} ; do echo \"https_proxy=${PROXY_HTTPS}\"|ssh -o StrictHostKeyChecking=no 192.168.210.${i} "cat - |sudo tee -a /etc/environment"; done
+  for i in ${INFRAS} ; do echo http_proxy=\"${PROXY_HTTP}\"|ssh -o StrictHostKeyChecking=no 192.168.210.${i} "cat - |sudo tee -a /etc/environment"; done
+  for i in ${INFRAS} ; do echo https_proxy=\"${PROXY_HTTPS}\"|ssh -o StrictHostKeyChecking=no 192.168.210.${i} "cat - |sudo tee -a /etc/environment"; done
 fi
 
 logit "echo allow connection from host to ubuntu on infras"

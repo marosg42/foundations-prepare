@@ -221,6 +221,10 @@ if [ "$HA" = true ] ; then
   wait_for_load 4
 fi
 
+# let things settle down, some time for ssh start etc
+# becasue from time to time it is not up yet
+sleep 15
+
 logit "multipass list"
 
 # setup ssh keys as needed

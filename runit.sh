@@ -13,63 +13,86 @@ LOG=./output.txt
 # directory where qcows2 files for VMs will be located
 VMs=~/VMs
 
-# wait till avgload goes under $1
-# if $1 is not provided, 5 is default
-wait_for_load() {
-  d1=5
-  if [ "$#" -lt 1 ]; then
-    d2=5
-  else
-    d2=$1
-  fi
-
-  while true; do
-    d1=$(uptime|sed "s/.*average://"|awk '{print $1}'|sed "s/,//")
-    echo $d1 
-    if (( $(awk 'BEGIN {print ("'$d1'" < "'$d2'")}') )); then
-      break
-    fi
-    sleep 30
-  done
-}
-
 # logging commands and their output
 # $1 is a command to execute
 logit() {
- echo "***************************************************************************" | tee -a $LOG
- date | tee -a $LOG
- echo $1 | tee -a $LOG
- eval ${1} | tee -a $LOG
- uptime | tee -a $LOG
- echo "" | tee -a $LOG
+ echo "***************************************************************************" >> $LOG 2>&1
+ date >> $LOG 2>&1
+ echo $1 >> $LOG 2>&1
+ eval ${1} >> $LOG 2>&1
+ uptime >> $LOG 2>&1
+ echo "" >> $LOG 2>&1
 }
 
+info() {
+  echo -n $1
+}
+
+ok() {
+  GREEN='\033[0;32m'
+  NC='\033[0m' # No Color
+  printf "${GREEN}OK${NC}\n"
+}
+
+echo
+echo "******************************************************************************"
+echo
+echo -n "Going to deploy "
+if [ "$HA" = true ] ; then
+  echo "3 infra nodes"
+else
+  echo "1 infra node"
+fi
+echo
+if [ "$PROXY" = true ] ; then
+  echo "Going to use proxy"
+  echo "  HTTP_PROXY=${PROXY_HTTP}"
+  echo "  HTTPS_PROXY=${PROXY_HTTPS}"
+else
+  echo "No proxy will be configure"
+fi
+echo
+echo "******************************************************************************"
+echo
 
 cd
 logit "echo \"*** Start ***\"" 
+info "Checking user..."
 set -e
 if [ ${USER} != 'ubuntu' ]; then
+  echo "Script must run under user ubuntu"
   logit "echo This is just a dumb script which assumes it runs under user ubuntu"
   return 1
 fi
+ok
 
+info "Creating ${VMs}..."
 mkdir -p ${VMs}
+ok
 
 if [ "$PROXY" = true ] ; then
-  cat <<EOF | sudo tee -a /etc/environment
+  info "Setting proxy in /etc/environment..."
+  cat <<EOF | sudo tee -a /etc/environment >> $LOG 2>&1
 http_proxy="${PROXY_HTTP}"
 https_proxy="${PROXY_HTTPS}"
 no_proxy=127.0.0.1
 EOF
+  ok
+  info "Restarting snapd..."
+  sudo systemctl restart snapd
+  ok
 fi
 
-sudo systemctl restart snapd
-
+# install needed packages
+logit "echo \"*** packages ***\""
+info "Installing necessary packages..."
+sudo apt install bridge-utils libvirt-bin qemu-utils virtinst qemu-kvm bind9 bind9utils -y >> $LOG 2>&1
+sleep 30
+ok
 
 logit "echo \"*** Bind ***\""
-# DNS server (just a forwarder, should be replaced by dnsmasq) to listen on 192.168.210.1
-sudo apt install bind9 bind9utils -y
-cat <<EOF | sudo tee /etc/bind/named.conf.options 
+info "Configuring bind9..."
+cat <<EOF | sudo tee /etc/bind/named.conf.options >> $LOG 2>&1
 options {
        directory "/var/cache/bind";
        forwarders {
@@ -82,59 +105,75 @@ options {
 };
 EOF
 
+ok
+info "Restarting bind9..."
 sudo systemctl restart bind9
+ok
 
-# install needed packages
-logit "echo \"*** packages ***\""
-sudo apt install bridge-utils libvirt-bin qemu-utils virtinst qemu-kvm -y
-sleep 30
 # it happened ONCE nested KVM was not allowed, so these three lines are just in case
 sudo modprobe -r kvm_intel
 sudo modprobe kvm_intel nested=1
-echo "options kvm_intel nested=1" | sudo tee -a /etc/modprobe.d/kvm.conf 
+echo "options kvm_intel nested=1" | sudo tee -a /etc/modprobe.d/kvm.conf >> $LOG 2>&1
 logit "cat /sys/module/kvm_intel/parameters/nested"
 
 # create maasbr0 and setup iptable for NAT and forward
 logit "echo \"*** networking ***\""
+info "Defining and configuring maasbr0 bridge..."
 sudo brctl addbr maasbr0
 sudo ip a add 192.168.210.1/24 dev maasbr0
 sudo ip l set maasbr0 up
+ok
 
+info "Setting iptables..."
 sudo iptables -t nat -A POSTROUTING -s 192.168.210.0/24 ! -d 192.168.210.0/24 -m comment --comment "network maasbr0" -j MASQUERADE
 sudo iptables -t filter -A INPUT -i maasbr0 -p tcp -m tcp --dport 53 -m comment --comment "network maasbr0" -j ACCEPT
 sudo iptables -t filter -A INPUT -i maasbr0 -p udp -m udp --dport 53 -m comment --comment "network maasbr0" -j ACCEPT
 sudo iptables -t filter -A FORWARD -o maasbr0 -m comment --comment "network maasbr0" -j ACCEPT
 sudo iptables -t filter -A FORWARD -i maasbr0 -m comment --comment "network maasbr0" -j ACCEPT
+ok
 
+info "Generating ssh keypair..."
 # generate keypair
-printf 'y\n'|ssh-keygen -t rsa -f ~/.ssh/id_rsa -t rsa -N ''
+printf 'y\n'|ssh-keygen -t rsa -f ~/.ssh/id_rsa -t rsa -N '' >> $LOG 2>&1
+ok
 
 # install multipass, prepare script for creating infra nodes in multipass
 logit "echo \"*** multipass ***\""
-sudo snap install multipass --classic --beta
+info "Installing multipass snap..."
+sudo snap install multipass --classic --beta >> $LOG 2>&1
 sleep 30
+ok
 if [ "$PROXY" = true ] ; then
-  sudo snap set multipass proxy.http=${PROXY_HTTP}
-  sudo snap set multipass proxy.https=${PROXY_HTTPS}
-  sudo snap restart multipass
+  info "Setting proxy for multipass..."
+  sudo snap set multipass proxy.http=${PROXY_HTTP} >> $LOG 2>&1
+  sudo snap set multipass proxy.https=${PROXY_HTTPS} >> $LOG 2>&1
+  ok
+  info "Restarting multipass..."
+  sudo snap restart multipass >> $LOG 2>&1
   sleep 15
+  ok
 fi
-sudo snap set multipass driver=LIBVIRT
+
+info "Changing multipass driver..."
+sudo snap set multipass driver=LIBVIRT >> $LOG 2>&1
 sleep 10
+ok
 
 logit "brctl show"
 
-brctl show|grep mpvirtbr0
+brctl show|grep mpvirtbr0 >> $LOG 2>&1
 
 if [ $? != 0 ] ; then
   logit "echo It sucks"
-    return 1
+  info "mpvirtbr0 was not created, something is wrong"
+  return 1
 fi
 
 # multipass cloudinit
 logit "echo \"*** create cloudinit ***\""
+info "Creating cloudinit..."
 PUBKEY=$(cat ~/.ssh/id_rsa.pub)
-cat <<EOF | tee cloudinit.yaml
+cat <<EOF | tee cloudinit.yaml >> $LOG 2>&1
 package_update: true
 package_upgrade: true
 packages:
@@ -154,12 +193,15 @@ users:
    ssh_authorized_keys:
      - ${PUBKEY}
 EOF
+ok
 
 logit  "cat cloudinit.yaml"
 
 logit "echo \"*** create define_infra script ***\""
 
-cat <<EOF | tee define_infra.sh
+info "Creating define_infra script..."
+
+cat <<EOF | tee define_infra.sh >> $LOG 2>&1
 #!/bin/bash
 # \$1 name
 # \$2 IP
@@ -200,6 +242,7 @@ multipass.virsh reboot \${HOST}
 sleep 30
 ping -c 5 \$2
 EOF
+ok
 
 logit "cat define_infra.sh"
 chmod +x define_infra.sh
@@ -207,18 +250,21 @@ chmod +x define_infra.sh
 # call the script to create three infra nodes
 logit "echo \"*** define infras ***\""
 logit "echo \"*** define infra1 ***\""
-./define_infra.sh infra1 192.168.210.4
+info "Defining infra1, this will take couple of minutes..."
+./define_infra.sh infra1 192.168.210.4 >> $LOG 2>&1
 logit "echo return code $?"
-wait_for_load 4
+ok
 if [ "$HA" = true ] ; then
   logit "echo \"*** define infra2 ***\""
-  ./define_infra.sh infra2 192.168.210.5
+  info "Defining infra2, this will take couple of minutes..."
+  ./define_infra.sh infra2 192.168.210.5 >> $LOG 2>&1
   logit "echo return code $?"
-  wait_for_load 4
+  ok
   logit "echo \"*** define infra3 ***\""
-  ./define_infra.sh infra3 192.168.210.6
+  info "Defining infra3, this will take couple of minutes..."
+  ./define_infra.sh infra3 192.168.210.6 >> $LOG 2>&1
   logit "echo return code $?"
-  wait_for_load 4
+  ok
 fi
 
 # let things settle down, some time for ssh start etc
@@ -238,30 +284,34 @@ fi
 
 if [ "$PROXY" = true ] ; then
   logit "echo Adding proxy to infras"
-  for i in ${INFRAS} ; do echo http_proxy=\"${PROXY_HTTP}\"|ssh -o StrictHostKeyChecking=no 192.168.210.${i} "cat - |sudo tee -a /etc/environment"; done
-  for i in ${INFRAS} ; do echo https_proxy=\"${PROXY_HTTPS}\"|ssh -o StrictHostKeyChecking=no 192.168.210.${i} "cat - |sudo tee -a /etc/environment"; done
+  info "Adding proxy to infras..."
+  for i in ${INFRAS} ; do echo http_proxy=\"${PROXY_HTTP}\"|ssh -o StrictHostKeyChecking=no 192.168.210.${i} "cat - |sudo tee -a /etc/environment"; done >> $LOG 2>&1
+  for i in ${INFRAS} ; do echo https_proxy=\"${PROXY_HTTPS}\"|ssh -o StrictHostKeyChecking=no 192.168.210.${i} "cat - |sudo tee -a /etc/environment"; done >> $LOG 2>&1
+  ok
 fi
 
+info "Setting ssh stuff..."
 logit "echo allow connection from host to ubuntu on infras"
 # allow connection from host to ubuntu on infras
-for i in ${INFRAS}  ; do echo "${PUBKEY}" |ssh -o StrictHostKeyChecking=no 192.168.210.${i} "cat - >> /home/ubuntu/.ssh/authorized_keys"; done
+for i in ${INFRAS}  ; do echo "${PUBKEY}" |ssh -o StrictHostKeyChecking=no 192.168.210.${i} "cat - >> /home/ubuntu/.ssh/authorized_keys"; done >> $LOG 2>&1
 logit "echo allow connection from host to root on infras"
 # allow connection from host to root on infras (TODO - needed?)
-for i in ${INFRAS} ; do echo "${PUBKEY}" |ssh -o StrictHostKeyChecking=no 192.168.210.${i} "cat - |sudo tee -a /root/.ssh/authorized_keys"; done
+for i in ${INFRAS} ; do echo "${PUBKEY}" |ssh -o StrictHostKeyChecking=no 192.168.210.${i} "cat - |sudo tee -a /root/.ssh/authorized_keys"; done >> $LOG 2>&1
 logit "echo get ubuntu public key from infras"
 # get ubuntu public key from infras
-for i in ${INFRAS} ; do ssh -o StrictHostKeyChecking=no 192.168.210.${i} "printf 'y\n'|ssh-keygen -t rsa -f /home/ubuntu/.ssh/id_rsa -t rsa -N '' >>/dev/null 2>&1  ; cat /home/ubuntu/.ssh/id_rsa.pub"; done > ubuntukeyinfra
+for i in ${INFRAS} ; do ssh -o StrictHostKeyChecking=no 192.168.210.${i} "printf 'y\n'|ssh-keygen -t rsa -f /home/ubuntu/.ssh/id_rsa -t rsa -N '' >>/dev/null 2>&1  ; cat /home/ubuntu/.ssh/id_rsa.pub"; done > ubuntukeyinfra 
 logit "echo allow ubuntu from infras to logon to host"
 # allow ubuntu from infras to logon to host
 cat ubuntukeyinfra >> ~/.ssh/authorized_keys
-logit "echo establish first conection from infras to host so that it does not ask next time"
+logit "echo establish first conection from infras to host so that it does not ask next time" 
 # establish first conection from infras to host so that it does not ask next time
-for i in ${INFRAS} ; do ssh 192.168.210.${i} "printf 'yes\n'|ssh -o StrictHostKeyChecking=no ubuntu@192.168.210.1 hostname"; done
+for i in ${INFRAS} ; do ssh 192.168.210.${i} "printf 'yes\n'|ssh -o StrictHostKeyChecking=no ubuntu@192.168.210.1 hostname"; done >> $LOG 2>&1
+ok
 
 # define VMs for FCE
 logit "echo \"*** define VMs ***\""
 
-cat <<EOF |tee define_VMs.sh
+cat <<EOF |tee define_VMs.sh >> $LOG 2>&1
 #!/bin/bash
 define() {
 # \$1 name
@@ -300,25 +350,32 @@ done
 EOF
 
 logit "cat define_VMs.sh"
-chmod +x define_VMs.sh
+info "Creating VMs..."
+chmod +x define_VMs.sh 
 
 # sudo becasue some weird change in libvirt in 18.04
-sudo ./define_VMs.sh
+sudo ./define_VMs.sh >> $LOG 2>&1
 logit "echo return code $?"
 sleep 30
+ok
 
 logit "ls -l"
 
-printf 'y\n'|ssh-keygen -t rsa -f id_rsa_persistent -t rsa -N ''
+printf 'y\n'|ssh-keygen -t rsa -f id_rsa_persistent -t rsa -N '' >> $LOG 2>&1
 cat id_rsa_persistent.pub >> ~/.ssh/authorized_keys
 echo "IdentityFile ~/.ssh/id_rsa" > sshconfig; echo "IdentityFile ~/.ssh/id_rsa_persistent" >> sshconfig
 
-ssh-keyscan -H 192.168.210.4 >> ~/.ssh/known_hosts
+ssh-keyscan -H 192.168.210.4 >> ~/.ssh/known_hosts >> $LOG 2>&1
 if [ "$HA" = true ] ; then
-  ssh-keyscan -H 192.168.210.5 >> ~/.ssh/known_hosts
-  ssh-keyscan -H 192.168.210.6 >> ~/.ssh/known_hosts
+  ssh-keyscan -H 192.168.210.5 >> ~/.ssh/known_hosts >> $LOG 2>&1
+  ssh-keyscan -H 192.168.210.6 >> ~/.ssh/known_hosts >> $LOG 2>&1
 fi
 
+echo "******************************************************************************"
+multipass list
+virsh list --all
+
+echo
 echo "*******************************************************************************************************"
 echo "* When you clone cpe-deployments, copy ssh config and id_rsa_persistent* to that directory            *"
 echo "* Also run git config user.name \"Chuck Norris\"; git config user.email chuck.norris@norris.chuck there *"

@@ -13,6 +13,14 @@ LOG=./output.txt
 # directory where qcows2 files for VMs will be located
 VMs=~/VMs
 
+# There is no big need to change these variables unless you want different IPs
+INFRA1=192.168.210.4
+INFRA2=192.168.210.5
+INFRA3=192.168.210.6
+CIDR=192.168.210.0/24
+CIDR_bits=24
+GW=192.168.210.1
+
 # logging commands and their output
 # $1 is a command to execute
 logit() {
@@ -49,7 +57,7 @@ if [ "$PROXY" = true ] ; then
   echo "  HTTP_PROXY=${PROXY_HTTP}"
   echo "  HTTPS_PROXY=${PROXY_HTTPS}"
 else
-  echo "No proxy will be configure"
+  echo "No proxy will be configured"
 fi
 echo
 echo "******************************************************************************"
@@ -100,7 +108,7 @@ options {
        };
        dnssec-validation no;
        auth-nxdomain no;    # conform to RFC1035
-       listen-on {192.168.210.1;};
+       listen-on {${GW};};
        listen-on-v6 { any; };
 };
 EOF
@@ -120,12 +128,12 @@ logit "cat /sys/module/kvm_intel/parameters/nested"
 logit "echo \"*** networking ***\""
 info "Defining and configuring maasbr0 bridge..."
 sudo brctl addbr maasbr0
-sudo ip a add 192.168.210.1/24 dev maasbr0
+sudo ip a add ${GW}/${CIDR_bits} dev maasbr0
 sudo ip l set maasbr0 up
 ok
 
 info "Setting iptables..."
-sudo iptables -t nat -A POSTROUTING -s 192.168.210.0/24 ! -d 192.168.210.0/24 -m comment --comment "network maasbr0" -j MASQUERADE
+sudo iptables -t nat -A POSTROUTING -s ${CIDR} ! -d ${CIDR} -m comment --comment "network maasbr0" -j MASQUERADE
 sudo iptables -t filter -A INPUT -i maasbr0 -p tcp -m tcp --dport 53 -m comment --comment "network maasbr0" -j ACCEPT
 sudo iptables -t filter -A INPUT -i maasbr0 -p udp -m udp --dport 53 -m comment --comment "network maasbr0" -j ACCEPT
 sudo iptables -t filter -A FORWARD -o maasbr0 -m comment --comment "network maasbr0" -j ACCEPT
@@ -226,10 +234,10 @@ multipass exec \${HOST} -- bash -c "echo \"network:
      interfaces: [\${interface}]   
      dhcp4: False   
      dhcp6: False   
-     addresses: [\${2}/24]
-     gateway4: 192.168.210.1
+     addresses: [\${2}/${CIDR_bits}]
+     gateway4: ${GW}
      nameservers:
-       addresses: [192.168.210.1]
+       addresses: [${GW}]
      parameters:   
        stp: false   
        forward-delay: 0
@@ -251,18 +259,18 @@ chmod +x define_infra.sh
 logit "echo \"*** define infras ***\""
 logit "echo \"*** define infra1 ***\""
 info "Defining infra1, this will take couple of minutes..."
-./define_infra.sh infra1 192.168.210.4 >> $LOG 2>&1
+./define_infra.sh infra1 ${INFRA1} >> $LOG 2>&1
 logit "echo return code $?"
 ok
 if [ "$HA" = true ] ; then
   logit "echo \"*** define infra2 ***\""
   info "Defining infra2, this will take couple of minutes..."
-  ./define_infra.sh infra2 192.168.210.5 >> $LOG 2>&1
+  ./define_infra.sh infra2 ${INFRA2} >> $LOG 2>&1
   logit "echo return code $?"
   ok
   logit "echo \"*** define infra3 ***\""
   info "Defining infra3, this will take couple of minutes..."
-  ./define_infra.sh infra3 192.168.210.6 >> $LOG 2>&1
+  ./define_infra.sh infra3 ${INFRA3} >> $LOG 2>&1
   logit "echo return code $?"
   ok
 fi
@@ -277,35 +285,35 @@ logit "multipass list"
 PUBKEY=$(cat .ssh/id_rsa.pub)
 
 if [ "$HA" = true ] ; then
-  INFRAS="4 5 6"
+  INFRAS="${INFRA1} ${INFRA2} ${INFRA3}"
 else
-  INFRAS="4"
+  INFRAS="${INFRA1}"
 fi
 
 if [ "$PROXY" = true ] ; then
   logit "echo Adding proxy to infras"
   info "Adding proxy to infras..."
-  for i in ${INFRAS} ; do echo http_proxy=\"${PROXY_HTTP}\"|ssh -o StrictHostKeyChecking=no 192.168.210.${i} "cat - |sudo tee -a /etc/environment"; done >> $LOG 2>&1
-  for i in ${INFRAS} ; do echo https_proxy=\"${PROXY_HTTPS}\"|ssh -o StrictHostKeyChecking=no 192.168.210.${i} "cat - |sudo tee -a /etc/environment"; done >> $LOG 2>&1
+  for i in ${INFRAS} ; do echo http_proxy=\"${PROXY_HTTP}\"|ssh -o StrictHostKeyChecking=no ${i} "cat - |sudo tee -a /etc/environment"; done >> $LOG 2>&1
+  for i in ${INFRAS} ; do echo https_proxy=\"${PROXY_HTTPS}\"|ssh -o StrictHostKeyChecking=no ${i} "cat - |sudo tee -a /etc/environment"; done >> $LOG 2>&1
   ok
 fi
 
 info "Setting ssh stuff..."
 logit "echo allow connection from host to ubuntu on infras"
 # allow connection from host to ubuntu on infras
-for i in ${INFRAS}  ; do echo "${PUBKEY}" |ssh -o StrictHostKeyChecking=no 192.168.210.${i} "cat - >> /home/ubuntu/.ssh/authorized_keys"; done >> $LOG 2>&1
+for i in ${INFRAS}  ; do echo "${PUBKEY}" |ssh -o StrictHostKeyChecking=no ${i} "cat - >> /home/ubuntu/.ssh/authorized_keys"; done >> $LOG 2>&1
 logit "echo allow connection from host to root on infras"
 # allow connection from host to root on infras (TODO - needed?)
-for i in ${INFRAS} ; do echo "${PUBKEY}" |ssh -o StrictHostKeyChecking=no 192.168.210.${i} "cat - |sudo tee -a /root/.ssh/authorized_keys"; done >> $LOG 2>&1
+for i in ${INFRAS} ; do echo "${PUBKEY}" |ssh -o StrictHostKeyChecking=no ${i} "cat - |sudo tee -a /root/.ssh/authorized_keys"; done >> $LOG 2>&1
 logit "echo get ubuntu public key from infras"
 # get ubuntu public key from infras
-for i in ${INFRAS} ; do ssh -o StrictHostKeyChecking=no 192.168.210.${i} "printf 'y\n'|ssh-keygen -t rsa -f /home/ubuntu/.ssh/id_rsa -t rsa -N '' >>/dev/null 2>&1  ; cat /home/ubuntu/.ssh/id_rsa.pub"; done > ubuntukeyinfra 
+for i in ${INFRAS} ; do ssh -o StrictHostKeyChecking=no ${i} "printf 'y\n'|ssh-keygen -t rsa -f /home/ubuntu/.ssh/id_rsa -t rsa -N '' >>/dev/null 2>&1  ; cat /home/ubuntu/.ssh/id_rsa.pub"; done > ubuntukeyinfra 
 logit "echo allow ubuntu from infras to logon to host"
 # allow ubuntu from infras to logon to host
 cat ubuntukeyinfra >> ~/.ssh/authorized_keys
 logit "echo establish first conection from infras to host so that it does not ask next time" 
 # establish first conection from infras to host so that it does not ask next time
-for i in ${INFRAS} ; do ssh 192.168.210.${i} "printf 'yes\n'|ssh -o StrictHostKeyChecking=no ubuntu@192.168.210.1 hostname"; done >> $LOG 2>&1
+for i in ${INFRAS} ; do ssh ${i} "printf 'yes\n'|ssh -o StrictHostKeyChecking=no ubuntu@${GW} hostname"; done >> $LOG 2>&1
 ok
 
 # define VMs for FCE
@@ -365,10 +373,10 @@ printf 'y\n'|ssh-keygen -t rsa -f id_rsa_persistent -t rsa -N '' >> $LOG 2>&1
 cat id_rsa_persistent.pub >> ~/.ssh/authorized_keys
 echo "IdentityFile ~/.ssh/id_rsa" > sshconfig; echo "IdentityFile ~/.ssh/id_rsa_persistent" >> sshconfig
 
-ssh-keyscan -H 192.168.210.4 >> ~/.ssh/known_hosts >> $LOG 2>&1
+ssh-keyscan -H ${INFRA1} >> ~/.ssh/known_hosts >> $LOG 2>&1
 if [ "$HA" = true ] ; then
-  ssh-keyscan -H 192.168.210.5 >> ~/.ssh/known_hosts >> $LOG 2>&1
-  ssh-keyscan -H 192.168.210.6 >> ~/.ssh/known_hosts >> $LOG 2>&1
+  ssh-keyscan -H ${INFRA1} >> ~/.ssh/known_hosts >> $LOG 2>&1
+  ssh-keyscan -H ${INFRA1} >> ~/.ssh/known_hosts >> $LOG 2>&1
 fi
 
 echo "******************************************************************************"

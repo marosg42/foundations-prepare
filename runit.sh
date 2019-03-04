@@ -66,7 +66,6 @@ echo
 cd
 logit "echo \"*** Start ***\"" 
 info "Checking user..."
-set -e
 if [ ${USER} != 'ubuntu' ]; then
   echo "Script must run under user ubuntu"
   logit "echo This is just a dumb script which assumes it runs under user ubuntu"

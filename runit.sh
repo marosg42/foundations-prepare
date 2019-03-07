@@ -117,11 +117,20 @@ info "Restarting bind9..."
 sudo systemctl restart bind9
 ok
 
+if [[ $(lscpu | grep Intel) ]]; then
+  CPU=intel
+elif [[ $(lscpu | grep AMD) ]]; then
+  CPU=amd
+else
+  logit "Could not detect processor type"
+  return 1
+fi
+
 # it happened ONCE nested KVM was not allowed, so these three lines are just in case
-sudo modprobe -r kvm_intel
-sudo modprobe kvm_intel nested=1
-echo "options kvm_intel nested=1" | sudo tee -a /etc/modprobe.d/kvm.conf >> $LOG 2>&1
-logit "cat /sys/module/kvm_intel/parameters/nested"
+sudo modprobe -r kvm_$CPU
+sudo modprobe kvm_$CPU nested=1
+echo "options kvm_$CPU nested=1" | sudo tee -a /etc/modprobe.d/kvm.conf >> $LOG 2>&1
+logit "cat /sys/module/kvm_$CPU/parameters/nested"
 
 # create maasbr0 and setup iptable for NAT and forward
 logit "echo \"*** networking ***\""

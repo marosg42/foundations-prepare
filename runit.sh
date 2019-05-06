@@ -42,6 +42,16 @@ ok() {
   printf "${GREEN}OK${NC}\n"
 }
 
+wait_for_ping() {
+  result=1
+
+  while [ $result -eq 1 ]; do
+        sleep 5
+        ping -c 1 ${1} > /dev/null
+        result=$?
+  done
+}
+
 echo
 echo "******************************************************************************"
 echo
@@ -93,7 +103,7 @@ fi
 # install needed packages
 logit "echo \"*** packages ***\""
 info "Installing necessary packages..."
-sudo apt install bridge-utils libvirt-bin qemu-utils virtinst qemu-kvm bind9 bind9utils -y >> $LOG 2>&1
+sudo apt install bridge-utils libvirt-bin qemu-utils virtinst qemu-kvm bind9 bind9utils cloud-image-utils -y >> $LOG 2>&1
 sleep 30
 ok
 
@@ -153,65 +163,7 @@ info "Generating ssh keypair..."
 printf 'y\n'|ssh-keygen -t rsa -f ~/.ssh/id_rsa -t rsa -N '' >> $LOG 2>&1
 ok
 
-# install multipass, prepare script for creating infra nodes in multipass
-logit "echo \"*** multipass ***\""
-info "Installing multipass snap..."
-sudo snap install multipass --classic --beta >> $LOG 2>&1
-sleep 30
-ok
-if [ "$PROXY" = true ] ; then
-  info "Setting proxy for multipass..."
-  sudo snap set multipass proxy.http=${PROXY_HTTP} >> $LOG 2>&1
-  sudo snap set multipass proxy.https=${PROXY_HTTPS} >> $LOG 2>&1
-  ok
-  info "Restarting multipass..."
-  sudo snap restart multipass >> $LOG 2>&1
-  sleep 15
-  ok
-fi
-
-info "Changing multipass driver..."
-sudo snap set multipass driver=LIBVIRT >> $LOG 2>&1
-sleep 10
-ok
-
-logit "brctl show"
-
-brctl show|grep mpvirtbr0 >> $LOG 2>&1
-
-if [ $? != 0 ] ; then
-  logit "echo It sucks"
-  info "mpvirtbr0 was not created, something is wrong"
-  return 1
-fi
-
-# multipass cloudinit
-logit "echo \"*** create cloudinit ***\""
-info "Creating cloudinit..."
 PUBKEY=$(cat ~/.ssh/id_rsa.pub)
-cat <<EOF | tee cloudinit.yaml >> $LOG 2>&1
-package_update: true
-package_upgrade: true
-packages:
- - bridge-utils
- - qemu-kvm
- - libvirt-bin
-ssh_authorized_keys:
- - ${PUBKEY}
-users:
- - name: ubuntu
-   sudo: ALL=(ALL) NOPASSWD:ALL
-   home: /home/ubuntu
-   shell: /bin/bash
-   groups: [adm, audio, cdrom, dialout, floppy, video, plugdev, dip, netdev, libvirtd]
-   lock_passwd: True
-   gecos: Ubuntu
-   ssh_authorized_keys:
-     - ${PUBKEY}
-EOF
-ok
-
-logit  "cat cloudinit.yaml"
 
 logit "echo \"*** create define_infra script ***\""
 
@@ -222,75 +174,97 @@ cat <<EOF | tee define_infra.sh >> $LOG 2>&1
 # \$1 name
 # \$2 IP
 
-# trick to avoid multipass asking interactive question about statistics at random times
-exec 0<&-
+cat <<EOF1 | tee ci_userdata_\${1}
+#cloud-config
+hostname: \${1}
+users:
+ - name: ubuntu
+   sudo: ALL=(ALL) NOPASSWD:ALL
+   home: /home/ubuntu
+   shell: /bin/bash
+   groups: [adm, audio, cdrom, dialout, floppy, video, plugdev, dip, netdev, libvirtd]
+   lock_passwd: True
+   gecos: Ubuntu
+   ssh_authorized_keys:
+     - ${PUBKEY}
+package_update: true
+package_upgrade: true
+ssh_authorized_keys:
+  - ${PUBKEY}
+packages:
+  - bridge-utils
+  - qemu-kvm
+  - libvirt-bin
+power_state:
+  mode: reboot
+runcmd:
+  - systemctl disable cloud-init.service
+  - systemctl disable cloud-init-local.service
+  - systemctl disable cloud-final.service
+  - systemctl disable cloud-config.service
+EOF1
 
-HOST=\$1
-multipass launch 18.04 -c 4 -d 50G -m 8G --cloud-init cloudinit.yaml -n \${HOST}
-sleep 5
-multipass.virsh attach-interface \${HOST} bridge maasbr0 --config --live
-interface=\$(multipass exec \${HOST} -- ip l|grep ens|grep DOWN|head -n 1|awk '{print \$2}'|sed "s/\://")
-multipass exec \${HOST} -- bash -c "echo \"network: {config: disabled}\"| sudo tee /etc/cloud/cloud.cfg.d/99-disable-network-config.cfg"
-multipass exec \${HOST} -- bash -c "echo \"network:
- version: 2
- renderer: networkd
- ethernets:
-   \${interface}:
-     dhcp4: False
- bridges:   
-   broam:   
-     interfaces: [\${interface}]   
-     dhcp4: False   
-     dhcp6: False   
-     addresses: [\${2}/${CIDR_bits}]
-     gateway4: ${GW}
-     nameservers:
-       addresses: [${GW}]
-     parameters:   
-       stp: false   
-       forward-delay: 0
-\"|sudo tee /etc/netplan/51-fce.yaml"  
+cat <<EOF2 | tee ci_network_\${1}
+version: 2
+ethernets:
+    ens3:
+      dhcp4: false
+bridges:   
+    broam:   
+      dhcp4: false   
+      interfaces: [ ens3 ]
+      addresses: [\${2}/${CIDR_bits}]
+      gateway4: ${GW}
+      nameservers:
+        addresses: [${GW}]
+      parameters:   
+        stp: false   
+        forward-delay: 0
+EOF2
 
-multipass exec \${HOST} -- sudo netplan apply
-sleep 10
-ping -c 5 \$2
-multipass.virsh reboot \${HOST}
-sleep 30
-ping -c 5 \$2
+cp ubuntu-18.04-server-cloudimg-amd64.img ${VMs}/\${1}-d1.qcow2
+qemu-img resize ${VMs}/\${1}-d1.qcow2 50G
+
+cloud-localds -d raw -f iso -m local -H \${1} -N ci_network_\${1} \${1}-cloudinit.iso ci_userdata_\${1}
+
+
+virt-install --print-xml --noautoconsole --virt-type kvm --boot hd,menu=off --name \${1} --ram 8192 --vcpus 4 --cpu host-passthrough,cache.mode=passthrough --graphics vnc --video=cirrus --os-type linux --os-variant ubuntu18.04  --controller scsi,model=virtio-scsi,index=0 --disk format=qcow2,bus=scsi,cache=writeback,path=${VMs}/\${1}-d1.qcow2 --disk device=cdrom,path=\${1}-cloudinit.iso --network=bridge=maasbr0,mac=\$(date +"18:%y:%m:%H:%M:%S"),model=virtio > \${1}.xml
+virsh define \${1}.xml
+virsh start \${1}
 EOF
 ok
 
 logit "cat define_infra.sh"
 chmod +x define_infra.sh
+logit "Downloading cloud image"
+info "Downloading cloud image"
+# TODO check if ok
+wget https://cloud-images.ubuntu.com/releases/18.04/release/ubuntu-18.04-server-cloudimg-amd64.img >> $LOG 2>&1
+ok
 
 # call the script to create three infra nodes
 logit "echo \"*** define infras ***\""
 logit "echo \"*** define infra1 ***\""
 info "Defining infra1, this will take couple of minutes..."
-./define_infra.sh infra1 ${INFRA1} >> $LOG 2>&1
+sudo ./define_infra.sh infra1 ${INFRA1} >> $LOG 2>&1
 logit "echo return code $?"
 ok
 if [ "$HA" = true ] ; then
   logit "echo \"*** define infra2 ***\""
   info "Defining infra2, this will take couple of minutes..."
-  ./define_infra.sh infra2 ${INFRA2} >> $LOG 2>&1
+  sudo ./define_infra.sh infra2 ${INFRA2} >> $LOG 2>&1
   logit "echo return code $?"
   ok
   logit "echo \"*** define infra3 ***\""
   info "Defining infra3, this will take couple of minutes..."
-  ./define_infra.sh infra3 ${INFRA3} >> $LOG 2>&1
+  sudo ./define_infra.sh infra3 ${INFRA3} >> $LOG 2>&1
   logit "echo return code $?"
   ok
 fi
 
 # let things settle down, some time for ssh start etc
 # becasue from time to time it is not up yet
-sleep 15
-
-logit "multipass list"
-
-# setup ssh keys as needed
-PUBKEY=$(cat .ssh/id_rsa.pub)
+sleep 30
 
 if [ "$HA" = true ] ; then
   INFRAS="${INFRA1} ${INFRA2} ${INFRA3}"
@@ -298,6 +272,9 @@ else
   INFRAS="${INFRA1}"
 fi
 
+for i in ${INFRAS} ; do info "Waiting for a successfull ping to ${1}"; wait_for_ping ${i}; ok ; done
+
+# setup proxy
 if [ "$PROXY" = true ] ; then
   logit "echo Adding proxy to infras"
   info "Adding proxy to infras..."
@@ -306,13 +283,14 @@ if [ "$PROXY" = true ] ; then
   ok
 fi
 
+# setup ssh keys as needed
 info "Setting ssh stuff..."
 logit "echo allow connection from host to ubuntu on infras"
 # allow connection from host to ubuntu on infras
 for i in ${INFRAS}  ; do echo "${PUBKEY}" |ssh -o StrictHostKeyChecking=no ${i} "cat - >> /home/ubuntu/.ssh/authorized_keys"; done >> $LOG 2>&1
-logit "echo allow connection from host to root on infras"
-# allow connection from host to root on infras (TODO - needed?)
-for i in ${INFRAS} ; do echo "${PUBKEY}" |ssh -o StrictHostKeyChecking=no ${i} "cat - |sudo tee -a /root/.ssh/authorized_keys"; done >> $LOG 2>&1
+# logit "echo allow connection from host to root on infras"
+# # allow connection from host to root on infras (TODO - needed?)
+# for i in ${INFRAS} ; do echo "${PUBKEY}" |ssh -o StrictHostKeyChecking=no ${i} "cat - |sudo tee -a /root/.ssh/authorized_keys"; done >> $LOG 2>&1
 logit "echo get ubuntu public key from infras"
 # get ubuntu public key from infras
 for i in ${INFRAS} ; do ssh -o StrictHostKeyChecking=no ${i} "printf 'y\n'|ssh-keygen -t rsa -f /home/ubuntu/.ssh/id_rsa -t rsa -N '' >>/dev/null 2>&1  ; cat /home/ubuntu/.ssh/id_rsa.pub"; done > ubuntukeyinfra 
@@ -383,12 +361,11 @@ echo "IdentityFile ~/.ssh/id_rsa" > sshconfig; echo "IdentityFile ~/.ssh/id_rsa_
 
 ssh-keyscan -H ${INFRA1} >> ~/.ssh/known_hosts >> $LOG 2>&1
 if [ "$HA" = true ] ; then
-  ssh-keyscan -H ${INFRA1} >> ~/.ssh/known_hosts >> $LOG 2>&1
-  ssh-keyscan -H ${INFRA1} >> ~/.ssh/known_hosts >> $LOG 2>&1
+  ssh-keyscan -H ${INFRA2} >> ~/.ssh/known_hosts >> $LOG 2>&1
+  ssh-keyscan -H ${INFRA3} >> ~/.ssh/known_hosts >> $LOG 2>&1
 fi
 
 echo "******************************************************************************"
-multipass list
 virsh list --all
 
 echo

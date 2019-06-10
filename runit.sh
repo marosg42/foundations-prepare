@@ -47,7 +47,17 @@ wait_for_ping() {
 
   while [ $result -eq 1 ]; do
         sleep 5
-        ping -c 1 ${1} > /dev/null
+        ping -c 1 ${1} >> $LOG 2>&1
+        result=$?
+  done
+}
+
+wait_for_ssh() {
+  result=1
+
+  while [ $result -ne 0 ]; do
+        sleep 5
+        nc -zvw3 ${1} 22 >> $LOG 2>&1
         result=$?
   done
 }
@@ -237,7 +247,7 @@ ok
 logit "cat define_infra.sh"
 chmod +x define_infra.sh
 logit "Downloading cloud image"
-info "Downloading cloud image"
+info "Downloading cloud image..."
 # TODO check if ok
 wget https://cloud-images.ubuntu.com/releases/18.04/release/ubuntu-18.04-server-cloudimg-amd64.img >> $LOG 2>&1
 ok
@@ -272,7 +282,8 @@ else
   INFRAS="${INFRA1}"
 fi
 
-for i in ${INFRAS} ; do info "Waiting for a successfull ping to ${1}"; wait_for_ping ${i}; ok ; done
+for i in ${INFRAS} ; do info "Waiting for a successfull ping to ${i}..."; wait_for_ping ${i}; ok ; done
+for i in ${INFRAS} ; do info "Waiting for a successfull ssh to ${i}..."; wait_for_ssh ${i}; ok ; done
 
 # setup proxy
 if [ "$PROXY" = true ] ; then

@@ -7,7 +7,6 @@
 # - remove all virsh VMs and directory where their qcow2s stay
 # - remove maasbr0 and iptables related to it
 # - remove bind9
-# - delete multipass instances, uninstall multipass
 # - remove xml, yaml, sh and other files created by runit.sh
 # - remove infra hosts from known hosts file
 
@@ -44,21 +43,6 @@ logit "sudo virsh list --all"
 sudo rm -rf ${VMs}
 sudo rm *xml
 
-logit "multipass list"
-
-multipass stop infra1
-multipass stop infra2
-multipass stop infra3
-sleep 10
-multipass delete infra1
-multipass delete infra2
-multipass delete infra3
-multipass purge
-sleep 10
-sudo snap remove multipass
-sudo ip l set mpvirtbr0 down
-sudo brctl delbr mpvirtbr0
-
 logit "echo \"*** Bind ***\""
 
 sudo systemctl stop bind9
@@ -82,7 +66,6 @@ ssh-keygen -f "/home/ubuntu/.ssh/known_hosts" -R "192.168.210.6"
 
 logit "echo \"*** files ***\""
 
-rm cloudinit.yaml
 rm define_infra.sh
 rm ubuntukeyinfra
 rm define_VMs.sh

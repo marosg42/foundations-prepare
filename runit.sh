@@ -14,6 +14,7 @@ LOG=./output.txt
 VMs=~/VMs
 
 # There is no big need to change these variables unless you want different IPs
+MY_IP=192.168.210.1
 INFRA1=192.168.210.4
 INFRA2=192.168.210.5
 INFRA3=192.168.210.6
@@ -173,6 +174,12 @@ info "Generating ssh keypair..."
 printf 'y\n'|ssh-keygen -t rsa -f ~/.ssh/id_rsa -t rsa -N '' >> $LOG 2>&1
 ok
 
+info "Generating ssh keypair for infras..."
+# generate keypair
+printf 'y\n'|ssh-keygen -t rsa -f id_rsa_persistent -t rsa -N '' >> $LOG 2>&1
+cat id_rsa_persistent.pub >> ~/.ssh/authorized_keys
+ok
+
 PUBKEY=$(cat ~/.ssh/id_rsa.pub)
 
 logit "echo \"*** create define_infra script ***\""
@@ -207,11 +214,25 @@ packages:
   - libvirt-bin
 power_state:
   mode: reboot
+write_files:
+  - encoding: b64
+    owner: root:root
+    permissions: '0644'
+    path: /etc/ssh/id_rsa_persistent
+    content: $(base64 -w0 ~/id_rsa_persistent)
+  - encoding: b64
+    owner: root:root
+    permissions: '0644'
+    path: /etc/ssh/id_rsa_persistent.pub
+    content: $(base64 -w0 ~/id_rsa_persistent.pub)
 runcmd:
   - systemctl disable cloud-init.service
   - systemctl disable cloud-init-local.service
   - systemctl disable cloud-final.service
   - systemctl disable cloud-config.service
+  - echo "    StrictHostKeyChecking no\\n" >> /etc/ssh/ssh_config
+  - echo "Host ${MY_IP}\\n" >> /etc/ssh/ssh_config
+  - echo "    IdentityFile /etc/ssh/id_rsa_persistent\\n" >> /etc/ssh/ssh_config
 EOF1
 
 cat <<EOF2 | tee ci_network_\${1}
@@ -248,11 +269,16 @@ logit "cat define_infra.sh"
 chmod +x define_infra.sh
 logit "Downloading cloud image"
 info "Downloading cloud image..."
-# TODO check if ok
-wget https://cloud-images.ubuntu.com/releases/18.04/release/ubuntu-18.04-server-cloudimg-amd64.img >> $LOG 2>&1
+wget -t3 -c --progress=dot:giga  https://cloud-images.ubuntu.com/releases/18.04/release/ubuntu-18.04-server-cloudimg-amd64.img >> $LOG 2>&1
 ok
 
-# call the script to create three infra nodes
+if [ "$HA" = true ] ; then
+  INFRAS="${INFRA1} ${INFRA2} ${INFRA3}"
+else
+  INFRAS="${INFRA1}"
+fi
+
+# call the script to create one to three infra nodes
 logit "echo \"*** define infras ***\""
 logit "echo \"*** define infra1 ***\""
 info "Defining infra1, this will take couple of minutes..."
@@ -272,18 +298,8 @@ if [ "$HA" = true ] ; then
   ok
 fi
 
-# let things settle down, some time for ssh start etc
-# becasue from time to time it is not up yet
-sleep 30
-
-if [ "$HA" = true ] ; then
-  INFRAS="${INFRA1} ${INFRA2} ${INFRA3}"
-else
-  INFRAS="${INFRA1}"
-fi
-
 for i in ${INFRAS} ; do info "Waiting for a successfull ping to ${i}..."; wait_for_ping ${i}; ok ; done
-for i in ${INFRAS} ; do info "Waiting for a successfull ssh to ${i}..."; wait_for_ssh ${i}; ok ; done
+for i in ${INFRAS} ; do info "Waiting for sshd start on ${i}..."; wait_for_ssh ${i}; ok ; done
 
 # setup proxy
 if [ "$PROXY" = true ] ; then
@@ -297,11 +313,6 @@ fi
 # setup ssh keys as needed
 info "Setting ssh stuff..."
 logit "echo allow connection from host to ubuntu on infras"
-# allow connection from host to ubuntu on infras
-for i in ${INFRAS}  ; do echo "${PUBKEY}" |ssh -o StrictHostKeyChecking=no ${i} "cat - >> /home/ubuntu/.ssh/authorized_keys"; done >> $LOG 2>&1
-# logit "echo allow connection from host to root on infras"
-# # allow connection from host to root on infras (TODO - needed?)
-# for i in ${INFRAS} ; do echo "${PUBKEY}" |ssh -o StrictHostKeyChecking=no ${i} "cat - |sudo tee -a /root/.ssh/authorized_keys"; done >> $LOG 2>&1
 logit "echo get ubuntu public key from infras"
 # get ubuntu public key from infras
 for i in ${INFRAS} ; do ssh -o StrictHostKeyChecking=no ${i} "printf 'y\n'|ssh-keygen -t rsa -f /home/ubuntu/.ssh/id_rsa -t rsa -N '' >>/dev/null 2>&1  ; cat /home/ubuntu/.ssh/id_rsa.pub"; done > ubuntukeyinfra 
@@ -361,14 +372,10 @@ chmod +x define_VMs.sh
 # sudo becasue some weird change in libvirt in 18.04
 sudo ./define_VMs.sh >> $LOG 2>&1
 logit "echo return code $?"
-sleep 30
+sleep 10
 ok
 
 logit "ls -l"
-
-printf 'y\n'|ssh-keygen -t rsa -f id_rsa_persistent -t rsa -N '' >> $LOG 2>&1
-cat id_rsa_persistent.pub >> ~/.ssh/authorized_keys
-echo "IdentityFile ~/.ssh/id_rsa" > sshconfig; echo "IdentityFile ~/.ssh/id_rsa_persistent" >> sshconfig
 
 ssh-keyscan -H ${INFRA1} >> ~/.ssh/known_hosts >> $LOG 2>&1
 if [ "$HA" = true ] ; then
@@ -381,7 +388,8 @@ virsh list --all
 
 echo
 echo "*******************************************************************************************************"
-echo "* When you clone cpe-deployments, copy ssh config and id_rsa_persistent* to that directory            *"
-echo "* Also run git config user.name \"Chuck Norris\"; git config user.email chuck.norris@norris.chuck there *"
+echo "* When you clone cpe-deployments run                                                                  *"
+echo "*          git config user.name \"Chuck Norris\"; git config user.email chuck.norris@norris.chuck       *"
+echo "* there                                                                                               *"
 echo "*******************************************************************************************************"
 echo
